@@ -35,7 +35,7 @@ A Laravel, Vue and Inertia app for generating images with the [Pixelforge](https
 | A webhook arrives before the create request returns                             | Our record exists before Pixelforge hears about it, and its id travels in `metadata.generation_id`, so the event is matched anyway.                                                |
 | The same event delivered twice                                                  | Event ids are unique in `webhook_events`; recording the event and applying it share one transaction, so a redelivery is ignored but a failed one is retried.                       |
 | Events out of order                                                             | Status only moves forward (`queued → processing → succeeded/failed`), and final states never change.                                                                               |
-| Webhooks lost                                                                   | A scheduled command polls generations that have gone quiet for a minute.                                                                                                           |
+| Webhooks lost                                                                   | A minute after Pixelforge accepts a generation, a queued check asks Pixelforge directly if no webhook has settled it, and keeps checking with growing gaps until it finishes.      |
 | We gave up, but Pixelforge had accepted it after all                            | Pixelforge's word wins for anything it accepted (it bills us for it), so the generation is settled normally.                                                                       |
 | Forged or replayed webhooks                                                     | HMAC-SHA256 over the raw body, compared in constant time, and rejected if the timestamp is more than 5 minutes off.                                                                |
 
@@ -46,20 +46,21 @@ app/Pixelforge/          API client, typed responses, error codes, webhook signa
 app/Billing/             Money, Markup, PriceEstimator, CreditLedger
 app/Generations/         StartGeneration, GenerationLifecycle (the only place status and cost change), HandlePixelforgeEvent
 app/Jobs/SubmitGeneration.php                 Submission and retry policy
-app/Console/Commands/ReconcileGenerations.php Polling safety net
+app/Jobs/CheckOnGeneration.php                Safety net for lost webhooks
+app/Console/Commands/ReconcileGenerations.php Manual sweep of unfinished generations, e.g. after an outage
 app/Reports/ProfitReport.php                  Admin report
 resources/js/pages/Studio.vue                 Generate page and live history
 ```
 
 ## Running it locally
 
-Requires PHP 8.3+, Composer and Node 22.
+Requires PHP 8.4+, Composer and Node 22.18+.
 
 ```bash
 composer setup
 ```
 
-Then add your Pixelforge API key to `.env` (`PIXELFORGE_API_KEY`) and start everything (web server, queue worker, scheduler, Vite and logs):
+Then add your Pixelforge API key to `.env` (`PIXELFORGE_API_KEY`) and start everything (web server, queue worker, Vite and logs):
 
 ```bash
 composer run dev
@@ -71,7 +72,7 @@ composer run dev
 php artisan users:grant-admin someone@example.com
 ```
 
-**Webhooks locally.** Pixelforge can't reach `localhost`, so expose the app with a tunnel (Cloudflare Tunnel, ngrok or Expose), set the API key's webhook URL to `https://<tunnel>/api/webhooks/pixelforge`, and put its signing secret in `PIXELFORGE_WEBHOOK_SECRET`. Without a tunnel the scheduler polls instead, so statuses update within a minute or two.
+**Webhooks locally.** Pixelforge can't reach `localhost`, so expose the app with a tunnel (Cloudflare Tunnel, ngrok or Expose), set the API key's webhook URL to `https://<tunnel>/api/webhooks/pixelforge`, and put its signing secret in `PIXELFORGE_WEBHOOK_SECRET`. Without a tunnel, the follow-up checks ask Pixelforge directly, so statuses still update within a minute or two.
 
 ## Tests
 
@@ -84,8 +85,8 @@ Runs Pint, PHPStan (level 7) and the PHPUnit suite. The money tests use the work
 ## Deploying (Laravel Cloud)
 
 1. Create a Postgres database for the app.
-2. Set `PIXELFORGE_API_KEY` to a key used only by this deployment, and `PIXELFORGE_WEBHOOK_SECRET` to that key's signing secret.
-3. Run a queue worker (`php artisan queue:work`) and enable the scheduler.
+2. Add a managed queue for background jobs. Laravel Cloud's runs on Amazon SQS, which is why `aws/aws-sdk-php` is installed. No scheduler is needed.
+3. Set `PIXELFORGE_API_KEY` to a key used only by this deployment, and `PIXELFORGE_WEBHOOK_SECRET` to that key's signing secret.
 4. Set the key's webhook URL to `https://<your-app>/api/webhooks/pixelforge`.
 5. Register, then run `php artisan users:grant-admin <your email>` to see the profit report.
 
@@ -93,6 +94,7 @@ Using one key per environment matters: `/v1/usage` reports per key, so the deplo
 
 ## Decisions worth discussing
 
+- **Lost webhooks are caught per generation, not by a cron.** A scheduler running every minute would keep a scale-to-zero app and its database awake around the clock. Checking each generation a minute after it is accepted, and again with growing gaps while it runs, gives the same safety net, and nothing runs while nothing is in flight.
 - **Webhooks are applied inline, not queued.** The work is a couple of indexed writes in one transaction, well inside Pixelforge's 10-second limit, and it makes deduplication and the state change atomic. If processing became slow (for example copying images to storage), it would move to a job.
 - **Pricing lives only on the server.** The browser asks for an estimate as the form changes, so there is a single implementation of the pricing rules and the number shown is the number charged against.
 - **Users are charged on completion, not upfront.** Holding the worst case covers the risk without refunds or adjustments.
