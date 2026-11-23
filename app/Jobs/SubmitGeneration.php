@@ -64,6 +64,10 @@ class SubmitGeneration implements ShouldQueue
         }
 
         $lifecycle->sync($this->generation, $snapshot);
+
+        if (! $snapshot->status->isFinal()) {
+            CheckOnGeneration::scheduleFor($this->generation);
+        }
     }
 
     public function failed(?Throwable $exception): void

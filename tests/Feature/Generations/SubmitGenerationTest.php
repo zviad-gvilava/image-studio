@@ -3,6 +3,7 @@
 namespace Tests\Feature\Generations;
 
 use App\Enums\GenerationStatus;
+use App\Jobs\CheckOnGeneration;
 use App\Jobs\SubmitGeneration;
 use App\Models\CreditTransaction;
 use App\Models\Generation;
@@ -10,6 +11,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Tests\Concerns\InteractsWithPixelforge;
 use Tests\TestCase;
 
@@ -19,6 +21,13 @@ class SubmitGenerationTest extends TestCase
     use RefreshDatabase;
 
     private const string PROVIDER_ID = 'gen_01JC2Z8Q4N6V0M3H7X5T9R2B1K';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Queue::fake();
+    }
 
     public function test_it_submits_with_our_id_as_idempotency_key_and_metadata(): void
     {
@@ -39,6 +48,17 @@ class SubmitGenerationTest extends TestCase
         $this->assertSame('12.50', $generation->rates?->toArray()['reasoning_tokens']);
     }
 
+    public function test_an_accepted_generation_is_checked_on_in_case_its_webhook_never_arrives(): void
+    {
+        $generation = Generation::factory()->create();
+        Http::fake(['*/v1/generations' => Http::response($this->generationObject(self::PROVIDER_ID, 'queued', $generation->id), 202)]);
+
+        $this->runJob($generation);
+
+        Queue::assertPushed(CheckOnGeneration::class, fn (CheckOnGeneration $job): bool => $job->generation->is($generation)
+            && $job->delay === CheckOnGeneration::DELAYS_SECONDS[0]);
+    }
+
     public function test_an_idempotent_replay_that_already_succeeded_is_charged(): void
     {
         $generation = Generation::factory()->create();
@@ -48,6 +68,7 @@ class SubmitGenerationTest extends TestCase
 
         $this->assertSame(GenerationStatus::Succeeded, $generation->fresh()?->status);
         $this->assertSame(1, CreditTransaction::query()->count());
+        Queue::assertNotPushed(CheckOnGeneration::class);
     }
 
     public function test_it_waits_out_an_overloaded_provider(): void
