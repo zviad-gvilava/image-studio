@@ -2,6 +2,8 @@
 
 namespace App\Http\Middleware;
 
+use App\Billing\CreditLedger;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -15,6 +17,10 @@ class HandleInertiaRequests extends Middleware
      * @var string
      */
     protected $rootView = 'app';
+
+    public function __construct(
+        private readonly CreditLedger $ledger,
+    ) {}
 
     /**
      * Determines the current asset version.
@@ -35,12 +41,15 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
+        $user = $request->user();
+
         return [
             ...parent::share($request),
             'name' => config('app.name'),
             'auth' => [
-                'user' => $request->user(),
+                'user' => $user,
             ],
+            'credits' => fn (): ?array => $user instanceof User ? $this->ledger->summary($user)->toArray() : null,
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }
