@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-23
+
 ### Added
 
 - Studio page for generating images from a prompt, size, quality and up to four reference image URLs.

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-23
+
 ### Create images and know what they cost
 
 - Describe an image, choose its size and quality, and optionally add reference images.
