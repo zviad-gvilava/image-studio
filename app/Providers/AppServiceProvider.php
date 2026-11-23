@@ -2,9 +2,12 @@
 
 namespace App\Providers;
 
+use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Foundation\DevCommands;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 
@@ -24,6 +27,13 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+
+        Gate::define('view-admin-report', fn (User $user): bool => $user->is_admin);
+
+        if ($this->app->runningInConsole()) {
+            // `composer run dev` also runs the scheduler, which polls for overdue generations.
+            DevCommands::artisan('schedule:work', 'scheduler');
+        }
     }
 
     /**
