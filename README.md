@@ -2,7 +2,7 @@
 
 A Laravel, Vue and Inertia app for generating images with the [Pixelforge](https://pixelforge.promptedit.dev/docs) API. Users see what an image can cost before they create it, pay Pixelforge's exact cost plus 25% once it's ready, and never pay for a failure.
 
-**Live app:** _added after deployment_
+**Live app:** https://image-studio-production-xz9i1b.laravel.cloud (register to try it; credit purchases are simulated)
 
 ## What it does
 

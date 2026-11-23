@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Serve a `favicon.ico`, which browsers request on every visit and previously got a 404 for.
+
 ## [1.0.0] - 2026-11-23
 
 ### Added
