@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-23
+
+### Fixes
+
+- The app's icon now shows in every browser tab, including browsers that only look for `favicon.ico`.
+
 ## [1.0.0] - 2026-11-23
 
 ### Create images and know what they cost
