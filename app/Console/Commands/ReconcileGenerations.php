@@ -2,49 +2,27 @@
 
 namespace App\Console\Commands;
 
-use App\Generations\GenerationLifecycle;
+use App\Jobs\CheckOnGeneration;
 use App\Models\Generation;
-use App\Pixelforge\PixelforgeClient;
-use App\Pixelforge\PixelforgeException;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Log;
 
 /**
- * Webhook delivery isn't guaranteed, so generations that have gone quiet are polled instead.
+ * Each generation is already checked on automatically; this sweeps all of them at once,
+ * for example after an outage stopped webhooks from arriving.
  */
 class ReconcileGenerations extends Command
 {
-    protected $signature = 'generations:reconcile
-        {--quiet-for=60 : Seconds without an update before a generation is polled}
-        {--limit=10 : Most generations to poll in one run, to stay well inside the rate limit}';
+    protected $signature = 'generations:reconcile';
 
-    protected $description = 'Poll Pixelforge for generations whose webhooks are overdue';
+    protected $description = 'Check Pixelforge now for every generation still waiting on it';
 
-    public function handle(PixelforgeClient $pixelforge, GenerationLifecycle $lifecycle): int
+    public function handle(): int
     {
-        $overdue = Generation::query()
-            ->awaitingProvider()
-            ->where('updated_at', '<', now()->subSeconds((int) $this->option('quiet-for')))
-            ->oldest('updated_at')
-            ->limit((int) $this->option('limit'))
-            ->get();
+        $generations = Generation::query()->awaitingProvider()->get();
 
-        foreach ($overdue as $generation) {
-            try {
-                $lifecycle->sync($generation, $pixelforge->generation((string) $generation->provider_id));
-            } catch (PixelforgeException $exception) {
-                Log::warning('Could not poll a Pixelforge generation.', [
-                    'generation_id' => $generation->id,
-                    'error' => $exception->getMessage(),
-                ]);
+        $generations->each(fn (Generation $generation) => CheckOnGeneration::dispatch($generation));
 
-                if ($exception->isTemporary()) {
-                    break;
-                }
-            }
-        }
-
-        $this->components->info("Polled {$overdue->count()} overdue generation(s).");
+        $this->components->info("Queued a status check for {$generations->count()} generation(s).");
 
         return self::SUCCESS;
     }
